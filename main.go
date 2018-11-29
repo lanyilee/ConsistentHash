@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"hash/crc32"
 	"sort"
 	"strconv"
@@ -43,9 +44,12 @@ func HashKey(key string) uint32 {
 	return crc32.ChecksumIEEE([]byte(key))
 }
 func (c *Consistent) SearchTable(node Node) uint32 {
-	for ring := range c.HashRing {
-		if ring > int(node.Ring) {
-
+	for i, ring := range c.HashRing {
+		if ring > node.Ring {
+			return ring
+		}
+		if i == c.HashRing.Len()-1 { //如果最后一个table都比hash(node)小，则取第一个table
+			return c.HashRing[0]
 		}
 	}
 	return 1
@@ -70,8 +74,11 @@ func main() {
 		node.Data = "data" + strconv.Itoa(i)
 		node.Ring = HashKey(node.Data)
 		//找hash环中距离node最近的table
-
+		selectRing := c.SearchTable(*node)
+		node.TableName = c.TableMap[selectRing].Name
 		c.NodeList = append(c.NodeList, *node)
 	}
-
+	for _, n := range c.NodeList {
+		fmt.Println(n.TableName)
+	}
 }
