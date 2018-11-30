@@ -7,27 +7,27 @@ import (
 	"strconv"
 )
 
-//一致性hash算法
-//初定10个分表
+//consistent hash algorithm
+// initial 10 tables
 
 type Ring []uint32
 
 type Table struct {
-	Ring uint32 //此表对应在hash环上的位置
-	Name string //表名
+	Ring uint32 // the corresponding position of the table on the ring
+	Name string
 }
 
 //结点
 type Node struct {
-	Ring      uint32 //其hash决定在哪个table
-	Data      string //字符串
-	TableName string //当前结点被分配的表，在hash环顺时针最近一个table
+	Ring      uint32 //hash(data)
+	Data      string //data
+	TableName string //the table to which the node belongs to
 }
 
 type Consistent struct {
-	TableMap map[uint32]Table //所有表详细信息
-	HashRing Ring             //所有表的hash
-	NodeList []Node           //所有node点信息，在具体项目可以存在数据库中
+	TableMap map[uint32]Table //all tables message
+	HashRing Ring             //all tables hash
+	NodeList []Node           //all node message，should be stored on the database if possible
 }
 
 func (c Ring) Len() int {
@@ -44,53 +44,51 @@ func HashKey(key string) uint32 {
 	return crc32.ChecksumIEEE([]byte(key))
 }
 
-//取结点归属表
+//find the table which the given node  belongs to
 func (c *Consistent) SearchTable(node Node) uint32 {
 	for i, ring := range c.HashRing {
 		if ring >= node.Ring {
 			return ring
 		}
-		if i == c.HashRing.Len()-1 { //如果最后一个table都比hash(node)小，则取第一个table
+		if i == c.HashRing.Len()-1 { //if the last one table (the largest uint32 num) is less than hash(node),then select the first table(the smallest uint32 num) on the ring
 			return c.HashRing[0]
 		}
 	}
 	return c.HashRing[0]
 }
 
-//扩容（表增加）,并迁移相关数据
+//capacity(add table),and migrating data
 func (c *Consistent) AddTable(table Table) {
 	c.TableMap[table.Ring] = table
 	c.HashRing = append(c.HashRing, table.Ring)
 	sort.Sort(c.HashRing)
-	//找到新增的表的hash在环上的位置,以及新增表hash下一个表hash位置
+	//find the new table position on the ring
 	var preRing uint32
 	for i, ring := range c.HashRing {
 		if ring == table.Ring && i != len(c.HashRing)-1 {
 			preRing = c.HashRing[i+1]
-			fmt.Println("新加入的表所处位置：" + strconv.Itoa(i+1))
+			fmt.Println("added table old position：" + strconv.Itoa(i+1))
 			break
-		} else if ring == table.Ring && i == len(c.HashRing)-1 { //环状，最后一个hash值下一个就是第一个hash
-			fmt.Println("新加入的表所处位置：last")
+		} else if ring == table.Ring && i == len(c.HashRing)-1 { //ring structure，the largest hash(table) next is the smallest hash(table)
+			fmt.Println("added table old position：last")
 			preRing = c.HashRing[0]
 		}
 	}
 	preTable := c.TableMap[preRing]
-	fmt.Println("迁移数据所在老表：" + preTable.Name)
-	fmt.Println("迁移数据所在新表：" + table.Name)
+	fmt.Println("migrating data is in the old table ：" + preTable.Name)
+	fmt.Println("migrating data is in the new table：" + table.Name)
 	for _, node := range c.NodeList {
-		//迁移部分数据到新表
-		//当新的表处于环的第一个table结点
+		//the position where  the new table is located on is the smallest hash(new table)
 		if table.Ring == c.HashRing[0] {
-			//取环上 大于最后一个表hash，或者小于第一个表hash区间的数据
 			if node.TableName == preTable.Name && (node.Ring <= table.Ring || node.Ring > c.HashRing[len(c.HashRing)-1]) {
 				node.TableName = table.Name
-				fmt.Println("迁移数据：" + node.Data)
+				fmt.Println("migrating data：" + node.Data)
 			}
 			continue
 		}
 		if node.TableName == preTable.Name && node.Ring <= table.Ring {
 			node.TableName = table.Name
-			fmt.Println("迁移数据：" + node.Data)
+			fmt.Println("migrating data：" + node.Data)
 		}
 	}
 }
@@ -106,20 +104,19 @@ func main() {
 		c.HashRing = append(c.HashRing, table.Ring)
 		c.TableMap[table.Ring] = *table
 	}
-	//将ring排序
+	//sort the ring,from small to large
 	sort.Sort(c.HashRing)
-	//分配100个数据到10张表
+	//allocate 100 data to 10 tables
 	for i := 0; i < 100; i++ {
 		node := &Node{}
 		node.Data = "data" + strconv.Itoa(i)
 		node.Ring = HashKey(node.Data)
-		//找hash环中距离node最近的table
 		selectRing := c.SearchTable(*node)
 		node.TableName = c.TableMap[selectRing].Name
 		c.NodeList = append(c.NodeList, *node)
 	}
 
-	//添加表
+	//add table
 	addTable := &Table{}
 	addTable.Name = "table-add4"
 	addTable.Ring = HashKey(addTable.Name)
