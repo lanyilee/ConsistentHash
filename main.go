@@ -43,16 +43,56 @@ func (c Ring) Swap(i int, j int) {
 func HashKey(key string) uint32 {
 	return crc32.ChecksumIEEE([]byte(key))
 }
+
+//取结点归属表
 func (c *Consistent) SearchTable(node Node) uint32 {
 	for i, ring := range c.HashRing {
-		if ring > node.Ring {
+		if ring >= node.Ring {
 			return ring
 		}
 		if i == c.HashRing.Len()-1 { //如果最后一个table都比hash(node)小，则取第一个table
 			return c.HashRing[0]
 		}
 	}
-	return 1
+	return c.HashRing[0]
+}
+
+//扩容（表增加）,并迁移相关数据
+func (c *Consistent) AddTable(table Table) {
+	c.TableMap[table.Ring] = table
+	c.HashRing = append(c.HashRing, table.Ring)
+	sort.Sort(c.HashRing)
+	//找到新增的表的hash在环上的位置,以及新增表hash下一个表hash位置
+	var preRing uint32
+	for i, ring := range c.HashRing {
+		if ring == table.Ring && i != len(c.HashRing)-1 {
+			preRing = c.HashRing[i+1]
+			fmt.Println("新加入的表所处位置：" + strconv.Itoa(i+1))
+			break
+		} else if ring == table.Ring && i == len(c.HashRing)-1 { //环状，最后一个hash值下一个就是第一个hash
+			fmt.Println("新加入的表所处位置：last")
+			preRing = c.HashRing[0]
+		}
+	}
+	preTable := c.TableMap[preRing]
+	fmt.Println("迁移数据所在老表：" + preTable.Name)
+	fmt.Println("迁移数据所在新表：" + table.Name)
+	for _, node := range c.NodeList {
+		//迁移部分数据到新表
+		//当新的表处于环的第一个table结点
+		if table.Ring == c.HashRing[0] {
+			//取环上 大于最后一个表hash，或者小于第一个表hash区间的数据
+			if node.TableName == preTable.Name && (node.Ring <= table.Ring || node.Ring > c.HashRing[len(c.HashRing)-1]) {
+				node.TableName = table.Name
+				fmt.Println("迁移数据：" + node.Data)
+			}
+			continue
+		}
+		if node.TableName == preTable.Name && node.Ring <= table.Ring {
+			node.TableName = table.Name
+			fmt.Println("迁移数据：" + node.Data)
+		}
+	}
 }
 
 func main() {
@@ -78,7 +118,13 @@ func main() {
 		node.TableName = c.TableMap[selectRing].Name
 		c.NodeList = append(c.NodeList, *node)
 	}
-	for _, n := range c.NodeList {
-		fmt.Println(n.TableName)
-	}
+
+	//添加表
+	addTable := &Table{}
+	addTable.Name = "table-add4"
+	addTable.Ring = HashKey(addTable.Name)
+	c.AddTable(*addTable) //for _, n := range c.NodeList {
+	//	fmt.Println(n.TableName)
+	//}
+
 }
